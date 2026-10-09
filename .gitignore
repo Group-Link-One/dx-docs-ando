@@ -1,0 +1,26 @@
+# Local planning notes, never tracked
+PLAN.md
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Secrets
+.env
+
+# ando working files
+.ando/scratch/
+
+# Editors and OS
+.idea/
+.vscode/
+.DS_Store
+*.swp

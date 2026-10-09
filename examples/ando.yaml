@@ -1,0 +1,21 @@
+target: .
+language: en  # free text, passed to the model as language and tone ("pt-br, informal")
+registries: [registry.example.com]  # images from these registries count as ours
+defaults:
+  max_changed_files: 400
+  docs_in: [README.md, docs/**]
+projects:
+  - slug: orders
+    repo: git@github.com:example/orders.git
+    branch: main
+    exclude: [legacy/**]
+  - slug: billing-api
+    repo: git@github.com:example/platform.git  # a subfolder of a monorepo
+    branch: main
+    path: services/billing-api
+    builds:
+      - {glob: "Dockerfile", image: "billing-api"}
+  - slug: k8s-prod
+    kind: infra
+    repo: git@github.com:example/k8s-prod.git
+    branch: main
