@@ -12,7 +12,7 @@ VERSION = "0.1.0"
 SERVICE_DOCS = ["1.Overview.md", "2.Architecture.md", "3.Workflows.md",
                 "5.Boundaries-Interfaces.md", "6.Database-Overview.md"]
 MODULES_DIR = "4.Deep-Exploration"
-KINDS = ("service", "infra", "lib")
+KINDS = ("service", "infra", "lib", "external")
 
 
 def now():
@@ -77,7 +77,7 @@ class Project:
         self.kind = spec.get("kind", "service")
         if self.kind not in KINDS:
             raise SystemExit(f"{self.slug}: unknown kind {self.kind}")
-        self.repo = Repo(self.spec, target.root)
+        self.repo = None if self.kind == "external" else Repo(self.spec, target.root)
 
     @property
     def dir(self):
@@ -122,7 +122,7 @@ class Project:
         return sorted(p.stem for p in d.glob("*.md") if p.name != "README.md") if d.exists() else []
 
     def required_docs(self):
-        if self.spec.get("docs") is False:
+        if self.spec.get("docs") is False or self.kind == "external":
             return []
         if self.kind == "infra":
             return ["DEPLOY.md"]

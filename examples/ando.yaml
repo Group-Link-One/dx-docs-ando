@@ -19,3 +19,7 @@ projects:
     kind: infra
     repo: git@github.com:example/k8s-prod.git
     branch: main
+    live_requires_app: true  # without a live snapshot, our images count as running only under an Argo app
+    live_context: prod       # `ando map --live` reads workloads and Argo apps from this kube context (read-only)
+  - slug: warehouse
+    kind: external  # no repo: ports exported from a running system, kept in warehouse/.ando/ports.json

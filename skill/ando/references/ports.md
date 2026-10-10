@@ -29,6 +29,13 @@ service that uses them.
 `via`: `http`, `grpc`, `kafka`, `rabbitmq`, `mqtt`, `nats`, `redis`, `postgres`, `mysql`,
 `mongodb`, `clickhouse`, `druid`, `s3`, `webhook`, `other`.
 
+## External projects
+
+A project with `kind: external` has no repo. Its `ports.json` comes from an export of a
+running system (a stream processor's ingestion specs, a SaaS webhook list). Keep the raw
+export next to it in `.ando/`, cite it as evidence, and regenerate the ports from it
+instead of editing them by hand.
+
 ## Naming, so the join matches
 
 The join is exact on `(via, name)`. Two projects must write the same name for the same

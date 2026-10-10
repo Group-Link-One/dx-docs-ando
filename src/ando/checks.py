@@ -28,6 +28,8 @@ def run(target, projects, shas=None, prev=None):
     """shas: slug -> sha docs are checked against (default: state baseline). prev: path -> previous text for the update guard."""
     out = []
     for p in projects:
+        if p.kind == "external":
+            continue
         state = p.load_state()
         sha = (shas or {}).get(p.slug) or ((state or {}).get("baseline") or {}).get("sha")
         out += _required(p, state)

@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 
 import yaml
 
-from . import inventory, questions
+from . import inventory, live, questions
 from .gitx import _join
 from .project import now
 
@@ -68,11 +68,45 @@ def build(target, shas):
     for slug, bl in builds.items():
         for b in bl:
             by_key[b["key"]]["builders"].append({"project": slug, **b})
+    undeclared = []
     for slug, inv in invs.items():
         needs_app = target.project(slug).spec.get("live_requires_app")
+        snap = target.project(slug).load_json("live.json")
+        if snap:
+            live_wl = {(x["namespace"], x["name"]): x for x in snap["workloads"]}
+            live_apps = {x["name"]: x for x in snap["apps"]}
+            by_name = defaultdict(list)
+            for x in snap["workloads"]:
+                by_name[x["name"]].append(x)
+            for w in inv["workloads"]:
+                if not w["namespace"] and len(by_name.get(w["name"], [])) == 1:
+                    w["namespace"] = by_name[w["name"]][0]["namespace"]
+            declared = {(w["namespace"], w["name"]) for w in inv["workloads"]}
+            for k, x in sorted(live_wl.items(), key=lambda kv: (kv[0][0] or "", kv[0][1] or "")):
+                ours = any(inventory.registry_of(inventory.split_image(i)[0]) in (target.manifest.get("registries") or []) for i in x["images"] if i)
+                if k not in declared and live.running(x) and (x.get("app") or ours):
+                    src = (live_apps.get(x.get("app")) or {}).get("sources") or [{}]
+                    undeclared.append({"infra": slug, "namespace": k[0], "name": k[1], "kind": x["kind"], "app": x.get("app"),
+                                       "app_repo": src[0].get("repo"), "app_path": src[0].get("path"),
+                                       "images": [inventory.split_image(i)[2] for i in x["images"] if i]})
+                    for i in x["images"]:
+                        if not i:
+                            continue
+                        repo, tag, key = inventory.split_image(i)
+                        by_key[key]["workloads"].append({
+                            "infra": slug, "kind": x["kind"], "name": k[1], "namespace": k[0], "file": f"(cluster, app {x.get('app') or '-'})",
+                            "image": repo, "tag": tag, "registry": inventory.registry_of(repo), "replicas": x.get("replicas"),
+                            "schedule": x.get("schedule"), "suspended": x.get("suspended"), "variant": None, "variant_of": None,
+                            "apps": [x["app"]] if x.get("app") else [], "managed": bool(x.get("app")), "live": True, "undeclared": True})
         for w in inv["workloads"]:
-            w["managed"] = bool(w.get("apps"))
-            w["live"] = w["managed"] or not needs_app or not any(i["registry"] in (target.manifest.get("registries") or []) for i in w["images"])
+            if snap:
+                lw = live_wl.get((w["namespace"], w["name"]))
+                w["managed"] = any(a in live_apps for a in w.get("apps") or [])
+                w["live"] = live.running(lw) if lw else w["managed"]
+                w["live_from"] = "cluster " + snap["taken_at"][:10]
+            else:
+                w["managed"] = bool(w.get("apps"))
+                w["live"] = w["managed"] or not needs_app or not any(i["registry"] in (target.manifest.get("registries") or []) for i in w["images"])
             for img in w["images"]:
                 by_key[img["key"]]["workloads"].append({
                     "infra": slug, "kind": w["kind"], "name": w["name"], "namespace": w["namespace"],
@@ -89,7 +123,7 @@ def build(target, shas):
         for w in e["workloads"]:
             w["hosts"] = sorted(hosts.get((w["infra"], w["namespace"]), set()))
 
-    deploy = {"generated_at": now(), "own_registries": sorted(own), "images": {}}
+    deploy = {"generated_at": now(), "own_registries": sorted(own), "images": {}, "undeclared_live": undeclared}
     for key in sorted(by_key):
         e = by_key[key]
         ours = bool(e["builders"]) or any(w["registry"] in own for w in e["workloads"])

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import yaml
 
-from . import checks, mapjoin, questions, render, reports
+from . import checks, live, mapjoin, questions, render, reports
 from .gitx import GitError, sha256_file
 from .project import MANIFEST, VERSION, Target, find_target, now
 
@@ -25,10 +25,10 @@ def main(argv=None):
 
     s = sub.add_parser("add", help="add a project to the manifest")
     s.add_argument("slug")
-    s.add_argument("--repo", required=True)
+    s.add_argument("--repo", help="required unless --kind external")
     s.add_argument("--branch")
     s.add_argument("--path", default=".")
-    s.add_argument("--kind", default="service", choices=["service", "infra", "lib"])
+    s.add_argument("--kind", default="service", choices=["service", "infra", "lib", "external"])
     s.add_argument("--exclude", action="append", default=[])
 
     s = sub.add_parser("import", help="adopt existing docs (e.g. a Terrain human/ dir) at a known baseline")
@@ -42,6 +42,7 @@ def main(argv=None):
     s.add_argument("--json", action="store_true")
 
     s = sub.add_parser("map", help="infra inventory + builds + ports joins; deploy and bridge maps (no LLM)")
+    s.add_argument("--live", action="store_true", help="snapshot infra projects with `live_context` via read-only kubectl first")
 
     s = sub.add_parser("prepare", help="decide the mode and write the context bundle for the skill")
     s.add_argument("slug")
@@ -93,7 +94,7 @@ def cmd_init(d):
 
 
 def cmd_add(target, a):
-    spec = {"slug": a.slug, "repo": a.repo}
+    spec = {"slug": a.slug, "repo": a.repo} if a.repo else {"slug": a.slug}
     if a.kind != "service":
         spec["kind"] = a.kind
     if a.branch:
@@ -102,6 +103,8 @@ def cmd_add(target, a):
         spec["path"] = a.path
     if a.exclude:
         spec["exclude"] = a.exclude
+    if not a.repo and a.kind != "external":
+        raise SystemExit("--repo is required")
     if any(p.slug == a.slug for p in target.projects):
         raise SystemExit(f"{a.slug} already in manifest")
     text = target.manifest_path.read_text().replace("projects: []", "projects:")
@@ -131,6 +134,7 @@ def _commit_state(p, sha, mode, result="ok"):
 
 def cmd_import(target, a):
     p = target.project(a.slug)
+    _need_repo(p)
     p.repo.ensure()
     src = Path(a.src).resolve()
     if src != p.dir.resolve():
@@ -140,6 +144,11 @@ def cmd_import(target, a):
     print(f"{p.slug}: imported {len(state['docs'])} docs at {sha[:8]}, {len(state['modules'])} modules")
 
 
+def _need_repo(p):
+    if p.kind == "external":
+        raise SystemExit(f"{p.slug} is external: it has no repo; edit its .ando/ports.json instead")
+
+
 def _short(names, n=6):
     if not names:
         return "-"
@@ -147,6 +156,9 @@ def _short(names, n=6):
 
 
 def project_status(target, p, fetch=False, deploy=None):
+    if p.kind == "external":
+        return {"slug": p.slug, "kind": p.kind, "repo": "-", "branch": "-", "path": "-", "baseline": "-", "behind": "-",
+                "status": "external", "head": None, "deployed": "-", "questions": len(questions.open_questions(p))}
     state = p.load_state()
     row = {"slug": p.slug, "kind": p.kind, "repo": p.spec["repo"], "branch": p.spec.get("branch") or "HEAD",
            "path": p.spec.get("path", "."), "baseline": "-", "behind": "-", "status": "never", "head": None,
@@ -190,8 +202,16 @@ def cmd_status(target, a):
 
 
 def cmd_map(target, a):
+    if getattr(a, "live", False):
+        for p in target.projects:
+            if p.kind == "infra" and p.spec.get("live_context"):
+                snap = live.snapshot(p.spec["live_context"])
+                p.save_json("live.json", snap)
+                print(f"{p.slug}: live snapshot from {snap['context']}: {len(snap['workloads'])} workloads, {len(snap['apps'])} Argo apps")
     shas = {}
     for p in target.projects:
+        if p.kind == "external":
+            continue
         p.repo.ensure()
         base = ((p.load_state() or {}).get("baseline") or {}).get("sha")
         shas[p.slug] = p.repo.head() if p.kind == "infra" or not base else base
@@ -246,6 +266,7 @@ def _apply_renames(p, renames):
 
 def cmd_prepare(target, a):
     p = target.project(a.slug)
+    _need_repo(p)
     p.repo.ensure()
     state = p.load_state()
     head = p.repo.head()
@@ -349,6 +370,7 @@ def cmd_check(target, a):
 
 def cmd_stamp(target, a):
     p = target.project(a.slug)
+    _need_repo(p)
     p.repo.ensure()
     run_dir = p.meta / "scratch" / "run"
     bundle = json.loads((run_dir / "bundle.json").read_text()) if (run_dir / "bundle.json").exists() else {}
@@ -386,7 +408,7 @@ def cmd_run(target, a):
     rows = cmd_status(target, argparse.Namespace(slugs=a.slugs, fetch=a.fetch, json=False))
     rc = 0
     for r in rows:
-        if r["status"] == "fresh":
+        if r["status"] in ("fresh", "external"):
             continue
         p = target.project(r["slug"])
         b = cmd_prepare(target, argparse.Namespace(slug=p.slug, mode=None))

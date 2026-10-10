@@ -46,9 +46,15 @@ def deploy_map(target, deploy):
     head = ["namespace", "workload", "kind", "image", "source", "runs", "hosts", "variant", "argo app"]
     body = "## Our workloads\n\n" + table(head, ours)
     body += "\n\n## Third-party components\n\n" + table(head, third)
-    body += "\n\n## Declared but disabled (no Argo app)\n\n" + (table(["namespace", "workload", "image", "source", "file"], sorted(disabled, key=lambda r: (r[0] or "", r[1]))) if disabled else "None.")
+    body += "\n\n## Declared but not running (no live Argo app, or scaled down)\n\n" + (table(["namespace", "workload", "image", "source", "file"], sorted(disabled, key=lambda r: (r[0] or "", r[1]))) if disabled else "None.")
     body += "\n\n## Built but not deployed\n\n" + ("\n".join(f"- {o}" for o in sorted(orphans)) or "None.")
     body += "\n\n## Deployed but no tracked source\n\n" + ("\n".join(f"- {u}" for u in sorted(untracked)) or "None.")
+    und = deploy.get("undeclared_live") or []
+    if und:
+        body += "\n\n## Running in the cluster, not declared in the infra repos\n\n" + table(
+            ["namespace", "workload", "kind", "images", "argo app", "app source"],
+            [[u["namespace"], u["name"], u["kind"], ", ".join(f"`{i}`" for i in u["images"]), u.get("app") or "",
+              f"`{u['app_repo']}` `{u['app_path']}`" if u.get("app_repo") else ""] for u in und])
     put_block(target.map_dir / "DEPLOY.md", "deploy", body, DEPLOY_HEADER)
 
 

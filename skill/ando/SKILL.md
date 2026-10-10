@@ -75,7 +75,8 @@ project changed: `ando map`, then system mode if the maps changed, then `ando ch
     4.Deep-Exploration/README.md 4.Deep-Exploration/<module>.md
     5.Boundaries-Interfaces.md 6.Database-Overview.md     (service; lib: 1 + 4)
     DEPLOY.md                                              (infra)
-    .ando/ state.json ports.json inventory.json questions.md scratch/
+    .ando/ state.json ports.json inventory.json live.json questions.md scratch/
+                                                           (external: .ando/ports.json + raw export only)
 ```
 
 ## Finishing a run

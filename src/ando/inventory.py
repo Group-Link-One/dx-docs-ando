@@ -45,10 +45,12 @@ def _kustomizations(root, files):
         if not kf or kf in seen:
             return {"files": [], "namespace": None, "images": []}
         seen.add(kf)
+        pre, suf = "", ""
         try:
             k = yaml.safe_load(kf.read_text()) or {}
         except yaml.YAMLError:
             return {"files": [], "namespace": None, "images": []}
+        pre, suf = k.get("namePrefix") or "", k.get("nameSuffix") or ""
         for pt in (k.get("patches") or []) + (k.get("patchesStrategicMerge") or []) + (k.get("patchesJson6902") or []):
             pp = pt if isinstance(pt, str) else (pt or {}).get("path")
             if pp and "\n" not in pp:
@@ -59,16 +61,17 @@ def _kustomizations(root, files):
                 continue
             p = (kdir / r).resolve()
             if p.is_dir():
-                out += resolve(p, seen)["files"]
+                out += [(f, pre + fp, fs + suf) for f, fp, fs in resolve(p, seen)["files"]]
             elif p.exists():
-                out.append(p)
+                out.append((p, pre, suf))
         return {"files": out, "namespace": k.get("namespace"), "images": k.get("images") or []}
 
     for kf in kfiles:
         kdir = (root / kf).parent.resolve()
         r = resolve(kdir, set())
-        for f in r["files"]:
-            ctx.setdefault(f, []).append({"namespace": r["namespace"], "images": r["images"], "kdir": str(kdir.relative_to(root.resolve()))})
+        for f, pre, suf in r["files"]:
+            ctx.setdefault(f, []).append({"namespace": r["namespace"], "images": r["images"], "kdir": str(kdir.relative_to(root.resolve())),
+                                          "prefix": pre, "suffix": suf})
     return ctx, patches
 
 
@@ -147,8 +150,10 @@ def extract(root, excludes=(), repo_name=None):
 def _collect(inv, doc, rel, ctx):
     kind, meta = doc["kind"], doc.get("metadata") or {}
     name = meta.get("name")
+    if name and kind != "Namespace":
+        name = ctx.get("prefix", "") + name + ctx.get("suffix", "")
     ns = meta.get("namespace") or ctx["namespace"]
-    base = {"name": name, "namespace": ns, "file": rel, "kustomization": ctx["kdir"]}
+    base = {"name": name, "namespace": ns, "file": rel, "kustomization": ctx["kdir"], "base_name": meta.get("name")}
     kdir = ctx["kdir"]
     if kdir and not (rel.startswith(kdir + "/") or kdir == "."):
         base["overlay"] = kdir
@@ -238,9 +243,10 @@ def _mark_variants(inv):
     for w in inv["workloads"]:
         if w.get("overlay"):
             tail = w["overlay"].split("/")
-            label = tail[-1][len(w["name"]) + 1:] if tail[-1].startswith(w["name"] + "-") else "/".join(
+            bn = w.get("base_name") or w["name"]
+            label = tail[-1][len(bn) + 1:] if tail[-1].startswith(bn + "-") else "/".join(
                 t for t in tail if t not in w["file"].split("/"))
-            w["variant_of"], w["variant"] = w["name"], label or tail[-1]
+            w["variant_of"], w["variant"] = bn, label or tail[-1]
             continue
         parts = w["name"].split("-")
         for i in range(len(parts) - 1, 0, -1):

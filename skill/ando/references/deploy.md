@@ -13,6 +13,13 @@ module docs. The runner extracts the inventory without a model (`ando map`):
 
 You write the prose around those blocks. Never edit inside them.
 
+When the infra project sets `live_context`, `ando map --live` also saves a read-only
+cluster snapshot to `.ando/live.json` (workload names, replicas, images, Argo apps; no
+env). With a snapshot, "running" means present in the cluster and not scaled down, and
+`map/DEPLOY.md` lists what runs in the cluster without being declared in any tracked
+repo. Without one, an Argo app file in the repo counts as running, which is wrong when
+apps are applied by hand.
+
 ## `<infra-slug>/DEPLOY.md`
 
 Above the inventory block, in this order:
