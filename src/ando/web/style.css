@@ -15,7 +15,8 @@ h1,h2,h3{line-height:1.25}h2{border-bottom:1px solid var(--line);padding-bottom:
 code{background:var(--code);padding:1px 5px;border-radius:4px;font-size:.9em}
 pre{background:var(--code);padding:12px;border-radius:6px;overflow:auto}pre code{padding:0;background:none}
 .tbl,main>table{overflow:auto}table{border-collapse:collapse;display:block;overflow:auto;max-width:100%;margin:12px 0}
-td{word-break:break-word}
+td{overflow-wrap:anywhere}
+.xt td:nth-child(-n+2),.xt td:nth-child(4){white-space:nowrap;overflow-wrap:normal}
 th,td{border:1px solid var(--line);padding:5px 10px;text-align:left;vertical-align:top}th{background:var(--side)}
 blockquote{border-left:3px solid var(--line);margin:1em 0;padding:0 1em;color:var(--mut)}
 .diagram{overflow:auto;margin:16px 0}.diagram svg{max-width:100%;height:auto}
@@ -40,3 +41,9 @@ body.nav-off main{padding-top:52px}
 .dv svg{display:block;position:absolute;top:0;left:0}
 .dg.full{position:fixed;inset:0;z-index:50;margin:0;border-radius:0;display:flex;flex-direction:column}
 .dg.full .dv{flex:1;height:auto!important}
+.dgbar{flex-wrap:wrap}.dgbar input{padding:2px 8px;border:1px solid var(--line);border-radius:5px;background:var(--bg);color:var(--fg);width:120px;font-size:12px}
+.dgbar .dgright{margin-left:auto;display:flex;gap:6px}.dgbar .dgopen{font-size:12px}
+.dv{user-select:none}.dg g.node{cursor:pointer}
+.dg .dim{opacity:.12}.dg g.node,.dg path.flowchart-link,.dg g.edgeLabel{transition:opacity .15s}
+h1 .hl,h2 .hl,h3 .hl,h4 .hl{margin-left:8px;font-size:.7em;opacity:0;color:var(--mut)}
+h1:hover .hl,h2:hover .hl,h3:hover .hl,h4:hover .hl{opacity:1}

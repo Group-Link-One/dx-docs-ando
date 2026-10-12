@@ -6,7 +6,7 @@
   const link = id => `<a href="#${encodeURIComponent(id)}">${esc(id)}</a>`;
   function rows(edges, side) {
     if (!edges.length) return '<p class="muted">None.</p>';
-    return "<table><tr><th>" + (side === "from" ? "Caller" : "Target") + "</th><th>Via</th><th>Name</th><th>Confidence</th><th>Evidence</th></tr>" +
+    return "<table class=\"xt\"><tr><th>" + (side === "from" ? "Caller" : "Target") + "</th><th>Via</th><th>Name</th><th>Confidence</th><th>Evidence</th></tr>" +
       edges.map(e => `<tr><td>${link(side === "from" ? e.from : e.to)}</td><td>${esc(e.via)}</td><td><code>${esc(e.name)}</code></td>` +
         `<td><span class="badge ${esc(e.confidence)}">${esc(e.confidence)}</span></td><td>${(e.evidence || []).map(esc).join("<br>")}</td></tr>`).join("") + "</table>";
   }
@@ -19,7 +19,7 @@
       if (e.from in idx && e.to in idx) lines.push(`  n${idx[e.from]} -->|${String(e.via).replace(/[|"]/g, "")}| n${idx[e.to]}`);
     });
     into.innerHTML = ids.length === 30 ? '<p class="muted">Graph capped at 30 nodes. The tables list everything.</p>' : "";
-    return mountDiagram(lines.join("\n"), w => into.prepend(w)).catch(() => {});
+    return mountDiagram(lines.join("\n"), w => into.prepend(w), {resolve: label => byId[label] ? "#" + encodeURIComponent(label) : null}).catch(() => {});
   }
   async function show(id) {
     const n = byId[id];
