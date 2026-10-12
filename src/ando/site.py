@@ -93,7 +93,7 @@ def _page(title, body, nav, cur, scripts=""):
 <html lang="en" data-root="{up}" data-mermaid="{MERMAID}">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{html.escape(title)}</title><link rel="stylesheet" href="{up}style.css"></head>
-<body><nav id="side"><a class="brand" href="{up}index.html">Architecture docs</a>
+<body><button id="menu" type="button" title="Show or hide the menu" aria-label="Toggle menu">&#9776;</button><nav id="side"><a class="brand" href="{up}index.html">Architecture docs</a>
 <input id="q" type="search" placeholder="Search docs" autocomplete="off"><div id="results"></div>{nav}</nav>
 <main>{body}</main><script src="{up}app.js"></script>{scripts}</body></html>"""
 

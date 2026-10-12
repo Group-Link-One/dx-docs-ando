@@ -10,8 +10,7 @@
       edges.map(e => `<tr><td>${link(side === "from" ? e.from : e.to)}</td><td>${esc(e.via)}</td><td><code>${esc(e.name)}</code></td>` +
         `<td><span class="badge ${esc(e.confidence)}">${esc(e.confidence)}</span></td><td>${(e.evidence || []).map(esc).join("<br>")}</td></tr>`).join("") + "</table>";
   }
-  const mid = (id, i) => "n" + i;
-  async function graph(id, ups, downs) {
+  function graph(id, ups, downs, into) {
     const ids = [...new Set([id, ...ups.map(e => e.from), ...downs.map(e => e.to)])].slice(0, 30), idx = {};
     ids.forEach((n, i) => idx[n] = i);
     const lines = ["flowchart LR"];
@@ -19,10 +18,8 @@
     [...ups, ...downs].forEach(e => {
       if (e.from in idx && e.to in idx) lines.push(`  n${idx[e.from]} -->|${String(e.via).replace(/[|"]/g, "")}| n${idx[e.to]}`);
     });
-    try {
-      const svg = await renderMermaid(lines.join("\n"), "g" + Date.now());
-      return '<div class="diagram">' + svg + "</div>" + (ids.length === 30 ? '<p class="muted">Graph capped at 30 nodes. The tables list everything.</p>' : "");
-    } catch (e) { return ""; }
+    into.innerHTML = ids.length === 30 ? '<p class="muted">Graph capped at 30 nodes. The tables list everything.</p>' : "";
+    return mountDiagram(lines.join("\n"), w => into.prepend(w)).catch(() => {});
   }
   async function show(id) {
     const n = byId[id];
@@ -32,11 +29,12 @@
       `<p class="muted">${[n.project && "project " + n.project, n.namespace && "namespace " + n.namespace].filter(Boolean).map(esc).join(" · ")}</p>` +
       `<div class="cols"><div><h3>Who calls or feeds it (${ups.length})</h3>${rows(ups, "from")}</div>` +
       `<div><h3>What it calls or feeds (${downs.length})</h3>${rows(downs, "to")}</div></div><div id="g"></div>`;
-    const g = await graph(id, ups, downs);
-    if (sel.value === id || location.hash.slice(1) === encodeURIComponent(id)) document.getElementById("g").innerHTML = g;
+    graph(id, ups, downs, document.getElementById("g"));
   }
   function fromHash() { const id = decodeURIComponent(location.hash.slice(1)); sel.value = id; show(id); }
-  sel.addEventListener("change", () => { location.hash = encodeURIComponent(sel.value); });
+  sel.addEventListener("focus", () => { sel.dataset.prev = sel.value; sel.placeholder = sel.value || "Type a node name"; sel.value = ""; });
+  sel.addEventListener("blur", () => { if (!sel.value) sel.value = sel.dataset.prev || ""; });
+  sel.addEventListener("input", () => { if (byId[sel.value]) { location.hash = encodeURIComponent(sel.value); sel.blur(); } });
   addEventListener("hashchange", fromHash);
   fromHash();
 })();
