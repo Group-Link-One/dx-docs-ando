@@ -7,7 +7,7 @@ from pathlib import Path
 
 import yaml
 
-from . import checks, live, mapjoin, questions, render, reports
+from . import checks, live, mapjoin, questions, render, reports, site
 from .gitx import GitError, sha256_file
 from .project import MANIFEST, VERSION, Target, find_target, now
 
@@ -60,6 +60,17 @@ def main(argv=None):
 
     s = sub.add_parser("questions", help="list open questions")
     s.add_argument("slugs", nargs="*")
+
+    s = sub.add_parser("site", help="build a static site from the docs (needs `markdown`)")
+    s.add_argument("--out", default="site")
+    s.add_argument("--mermaid-url", default=site.MERMAID, help="Mermaid script URL (point to a vendored copy to work offline)")
+    s.add_argument("--no-status", action="store_true", help="skip git lookups; status comes from the saved baselines only")
+
+    s = sub.add_parser("serve", help="live preview of the site, rebuilt when the docs change")
+    s.add_argument("--port", type=int, default=8000)
+    s.add_argument("--host", default="127.0.0.1")
+    s.add_argument("--mermaid-url", default=site.MERMAID)
+    s.add_argument("--no-status", action="store_true")
 
     s = sub.add_parser("run", help="status, prepare, claude -p, stamp, map, check")
     s.add_argument("slugs", nargs="*")
@@ -186,6 +197,30 @@ def project_status(target, p, fetch=False, deploy=None):
 def _deploy(target):
     p = target.map_dir / "deploy.json"
     return json.loads(p.read_text()) if p.exists() else None
+
+
+def _site_rows(target, a):
+    deploy = _deploy(target)
+    rows = []
+    for p in target.projects:
+        if a.no_status:
+            st = p.load_state() or {}
+            b = st.get("baseline")
+            rows.append({"slug": p.slug, "kind": p.kind, "branch": p.spec.get("branch") or "-", "baseline": f"{b['sha'][:8]} ({b['date'][:10]})" if b else "-",
+                         "behind": "-", "status": "external" if p.kind == "external" else "saved", "deployed": _short(sorted(reports.deployed_as(deploy, p.slug))),
+                         "questions": len(questions.open_questions(p))})
+        else:
+            rows.append(project_status(target, p, False, deploy))
+    return rows
+
+
+def cmd_site(target, a):
+    out = site.build(target, a.out, _site_rows(target, a), a.mermaid_url)
+    print(f"site written to {out}/index.html")
+
+
+def cmd_serve(target, a):
+    site.serve(target, _site_rows(target, a), a.port, a.host, a.mermaid_url)
 
 
 def cmd_status(target, a):
