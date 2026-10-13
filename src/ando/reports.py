@@ -31,7 +31,7 @@ def deploy_map(target, deploy):
             if not w.get("live", True):
                 disabled.append([w["namespace"], w["name"], f"`{key}:{w['tag'] or ''}`", src, f"`{w['file']}`"])
                 continue
-            run = w["schedule"] and f"cron `{w['schedule']}`" or (f"x{w['replicas']}" if w["replicas"] is not None else "")
+            run = f"cron `{w['schedule']}`" if w["schedule"] else ""
             if w.get("suspended"):
                 run += " suspended"
             rows.append([w["namespace"], w["name"], w["kind"], f"`{key}:{w['tag'] or ''}`", src, run,
@@ -43,7 +43,7 @@ def deploy_map(target, deploy):
     rows.sort(key=lambda r: (r[0] or "", r[1] or ""))
     ours = [r for r in rows if r[4] != "?" or any(reg in r[3] for reg in deploy["own_registries"])]
     third = [r for r in rows if r not in ours]
-    head = ["namespace", "workload", "kind", "image", "source", "runs", "hosts", "variant", "argo app"]
+    head = ["namespace", "workload", "kind", "image", "source", "schedule", "hosts", "variant", "argo app"]
     body = "## Our workloads\n\n" + table(head, ours)
     body += "\n\n## Third-party components\n\n" + table(head, third)
     body += "\n\n## Declared but not running (no live Argo app, or scaled down)\n\n" + (table(["namespace", "workload", "image", "source", "file"], sorted(disabled, key=lambda r: (r[0] or "", r[1]))) if disabled else "None.")
@@ -59,11 +59,11 @@ def deploy_map(target, deploy):
 
 
 def infra_deploy(project, inv):
-    head = ["namespace", "workload", "kind", "image", "runs", "secret refs", "file"]
+    head = ["namespace", "workload", "kind", "image", "schedule", "secret refs", "file"]
     rows = []
     for w in sorted(inv["workloads"], key=lambda w: (w["namespace"] or "", w["name"])):
         imgs = ", ".join(f"`{i['key']}:{i['tag'] or ''}`" for i in w["images"] if not i["init"])
-        run = w["schedule"] and f"cron `{w['schedule']}`" or (f"x{w['replicas']}" if w["replicas"] is not None else "")
+        run = f"cron `{w['schedule']}`" if w["schedule"] else ""
         rows.append([w["namespace"], w["name"], w["kind"], imgs, run, len(w["secret_refs"]), f"`{w['file']}`"])
     ing = [[i["namespace"], ", ".join(i["hosts"]), ", ".join(i["backends"]), f"`{i['file']}`"] for i in inv["ingresses"]]
     apps = [[a["name"], a["dest_namespace"], ", ".join(s.get("path") or s.get("chart") or "" for s in a["sources"]),

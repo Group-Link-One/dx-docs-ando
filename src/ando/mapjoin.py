@@ -214,7 +214,7 @@ def _bridges(target, invs, deploy, services):
 
     def reach(via, name, seen):
         """Queues reachable from an exchange, following exchange-to-exchange binds."""
-        for dest, ev in binds.get((via, name), ()):
+        for dest, ev in sorted(binds.get((via, name), ())):
             if dest in seen:
                 continue
             seen.add(dest)
@@ -274,7 +274,8 @@ def _bridges(target, invs, deploy, services):
             merged[k]["evidence"] = sorted(set(merged[k]["evidence"]) | set(e["evidence"]))
         else:
             merged[k] = e
-    uniq = list(merged.values())
+    uniq = sorted(({**e, "evidence": sorted(set(e["evidence"]))} for e in merged.values()),
+                  key=lambda e: (e["from"], e["to"], e["via"], e["name"]))
     return {"generated_at": now(), "nodes": sorted(nodes.values(), key=lambda n: n["id"]), "edges": uniq,
             "unmatched_ports": unmatched}
 

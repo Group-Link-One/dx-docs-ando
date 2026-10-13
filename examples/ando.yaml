@@ -23,3 +23,6 @@ projects:
     live_context: prod       # `ando map --live` reads workloads and Argo apps from this kube context (read-only)
   - slug: warehouse
     kind: external  # no repo: ports exported from a running system, kept in warehouse/.ando/ports.json
+
+# Fingerprints of reviewed `ando secrets` false positives (hashes, never the values).
+# secret_allow: [0123456789ab]

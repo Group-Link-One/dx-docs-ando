@@ -8,6 +8,7 @@ import yaml
 from .gitx import Repo
 
 MANIFEST = "ando.yaml"
+LOCAL = "ando.local.yaml"
 VERSION = "0.1.0"
 SERVICE_DOCS = ["1.Overview.md", "2.Architecture.md", "3.Workflows.md",
                 "5.Boundaries-Interfaces.md", "6.Database-Overview.md"]
@@ -37,6 +38,8 @@ class Target:
         self.manifest_path = self.root / MANIFEST
         self.manifest = yaml.safe_load(self.manifest_path.read_text()) or {}
         self.defaults = self.manifest.get("defaults") or {}
+        local = self.root / LOCAL
+        self.local = (yaml.safe_load(local.read_text()) or {}) if local.exists() else {}
         self.projects = [Project(self, p) for p in self.manifest.get("projects") or []]
 
     def project(self, slug):
@@ -77,7 +80,13 @@ class Project:
         self.kind = spec.get("kind", "service")
         if self.kind not in KINDS:
             raise SystemExit(f"{self.slug}: unknown kind {self.kind}")
-        self.repo = None if self.kind == "external" else Repo(self.spec, target.root)
+        self.repo = None if self.kind == "external" else Repo(self._repo_spec(), target.root)
+
+    def _repo_spec(self):
+        """ando.local.yaml `repos:` maps a repo URL (or a slug) to a local checkout, so the manifest stays portable."""
+        repos = self.target.local.get("repos") or {}
+        local = repos.get(self.spec["repo"]) or repos.get(self.slug)
+        return {**self.spec, "repo": local} if local else self.spec
 
     @property
     def dir(self):

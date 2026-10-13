@@ -10,6 +10,7 @@ from pathlib import Path, PurePosixPath
 
 import yaml
 
+from . import leaks
 from . import questions as qmod
 
 WEB = Path(__file__).parent / "web"
@@ -163,6 +164,9 @@ def build(target, out, rows, mermaid_url=MERMAID):
     out.mkdir(parents=True)
     for f in ("style.css", "app.js", "explorer.js"):
         shutil.copy(WEB / f, out / f)
+    local_mermaid = not re.match(r"https?://", mermaid_url)
+    if local_mermaid:
+        shutil.copy(Path(mermaid_url).expanduser(), out / "mermaid.min.js")
     srcs = sources(target)
     rels = {p.relative_to(target.root) for p in srcs}
     texts = {r: (target.root / r).read_text() for r in rels}
@@ -177,7 +181,8 @@ def build(target, out, rows, mermaid_url=MERMAID):
     def write(rel, title, body, scripts=""):
         dest = out / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
-        page = _page(title, body, _nav(pages, extra, rel), rel, scripts).replace(MERMAID, mermaid_url)
+        src = "../" * (len(PurePosixPath(rel).parts) - 1) + "mermaid.min.js" if local_mermaid else mermaid_url
+        page = _page(title, body, _nav(pages, extra, rel), rel, scripts).replace(MERMAID, src)
         dest.write_text(page)
 
     for rel in rels:
@@ -233,9 +238,16 @@ def serve(target, rows, port, host, mermaid_url=MERMAID):
     def refresh():
         with lock:
             sig = signature(target)
-            if sig != state["sig"]:
-                build(target, out, rows, mermaid_url)
-                state["sig"] = sig
+            if sig == state["sig"]:
+                return
+            state["sig"] = sig
+            found = leaks.scan(target.root, target.manifest.get("secret_allow"))
+            if found:
+                print(f"NOT rebuilt, {len(found)} possible secret(s):\n{leaks.format_findings(found)}", flush=True)
+                if not (out / "index.html").exists():
+                    raise SystemExit("fix the findings or add reviewed fingerprints to secret_allow in ando.yaml")
+                return
+            build(target, out, rows, mermaid_url)
 
     class Handler(http.server.SimpleHTTPRequestHandler):
         def __init__(self, *a, **k):

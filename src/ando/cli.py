@@ -7,7 +7,7 @@ from pathlib import Path
 
 import yaml
 
-from . import checks, live, mapjoin, questions, render, reports, site
+from . import checks, leaks, live, mapjoin, questions, render, reports, site
 from .gitx import GitError, sha256_file
 from .project import MANIFEST, VERSION, Target, find_target, now
 
@@ -61,9 +61,11 @@ def main(argv=None):
     s = sub.add_parser("questions", help="list open questions")
     s.add_argument("slugs", nargs="*")
 
+    s = sub.add_parser("secrets", help="scan every publishable file for secrets; exit 1 on any finding (for CI)")
+
     s = sub.add_parser("site", help="build a static site from the docs (needs `markdown`)")
     s.add_argument("--out", default="site")
-    s.add_argument("--mermaid-url", default=site.MERMAID, help="Mermaid script URL (point to a vendored copy to work offline)")
+    s.add_argument("--mermaid-url", default=site.MERMAID, help="Mermaid script URL, or a local file to copy into the site (no CDN at view time)")
     s.add_argument("--no-status", action="store_true", help="skip git lookups; status comes from the saved baselines only")
 
     s = sub.add_parser("serve", help="live preview of the site, rebuilt when the docs change")
@@ -97,10 +99,10 @@ def cmd_init(d):
     for sub in ("facts", "map"):
         (d / sub).mkdir(exist_ok=True)
     gi = d / ".gitignore"
-    line = "*/.ando/scratch/\n"
-    if not gi.exists() or line not in gi.read_text():
-        with gi.open("a") as f:
-            f.write(line)
+    for line in ("*/.ando/scratch/\n", "ando.local.yaml\n"):
+        if not gi.exists() or line not in gi.read_text():
+            with gi.open("a") as f:
+                f.write(line)
     print(f"initialized {d.resolve()}")
 
 
@@ -214,7 +216,23 @@ def _site_rows(target, a):
     return rows
 
 
+def _leaked(target):
+    found = leaks.scan(target.root, target.manifest.get("secret_allow"))
+    if found:
+        print(f"{len(found)} possible secret(s):\n{leaks.format_findings(found)}", file=sys.stderr)
+    return found
+
+
+def cmd_secrets(target, a):
+    if _leaked(target):
+        return 1
+    print("no secrets found")
+
+
 def cmd_site(target, a):
+    if _leaked(target):
+        print("site NOT built: fix the findings or add reviewed fingerprints to secret_allow in ando.yaml", file=sys.stderr)
+        return 1
     out = site.build(target, a.out, _site_rows(target, a), a.mermaid_url)
     print(f"site written to {out}/index.html")
 
@@ -417,6 +435,9 @@ def cmd_stamp(target, a):
     if (run_dir / "before").exists():
         for f in (run_dir / "before").rglob("*.md"):
             prev[str(p.dir / f.relative_to(run_dir / "before"))] = f.read_text()
+    if _leaked(target):
+        print(f"{p.slug}: baseline NOT moved (possible secrets; fix them or add reviewed fingerprints to secret_allow)")
+        return 1
     findings = checks.run(target, [p], shas={p.slug: sha}, prev=prev)
     old_errors = set(bundle.get("known_errors") or [])
     gating = [f for f in findings if f[0] == "error" and _err_key(f) not in old_errors

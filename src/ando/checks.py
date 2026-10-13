@@ -1,11 +1,9 @@
 """Deterministic checks. Each returns a list of (level, project, file, message)."""
-import math
 import re
 import shutil
 import subprocess
-from collections import Counter
 
-from . import render
+from . import leaks, render
 from .project import MODULES_DIR
 
 CITE = re.compile(r"(?<![@\w.:/-])((?:[\w.+-]+/)*[\w.+-]+\.([A-Za-z][A-Za-z0-9]{0,7})):(\d+)(?:-(\d+))?")
@@ -40,8 +38,7 @@ def run(target, projects, shas=None, prev=None):
         if prev:
             out += _guard(p, prev)
         out += _mermaid(p)
-        if p.kind == "infra":
-            out += _secrets(p)
+    out += _secrets(target)
     out += _repos_md(target)
     out += _bridges(target)
     return out
@@ -189,21 +186,10 @@ def _mermaid(p):
     return out
 
 
-def _entropy(s):
-    c = Counter(s)
-    return -sum(n / len(s) * math.log2(n / len(s)) for n in c.values())
-
-
-def _secrets(p):
-    out = []
-    files = [p.meta / "inventory.json"] + p.doc_files()
-    for f in files:
-        if not f.exists():
-            continue
-        for tok in re.findall(r"[A-Za-z0-9+/=_-]{32,}", f.read_text()):
-            if _entropy(tok) > 4.5 and not re.fullmatch(r"[a-f0-9]{40}|[a-f0-9]{64}", tok):
-                out.append(("error", p.slug, str(f.relative_to(p.dir)), f"possible secret: {tok[:6]}..."))
-    return out
+def _secrets(target):
+    allow = target.manifest.get("secret_allow") or []
+    return [("error", "-", x["file"], f"possible secret ({x['kind']}, {x['masked']}, fingerprint {x['fingerprint']})")
+            for x in leaks.scan(target.root, allow)]
 
 
 def _repos_md(target):
