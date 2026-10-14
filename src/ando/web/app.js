@@ -6,8 +6,6 @@
       const s = document.createElement("script");
       s.src = de.dataset.mermaid;
       s.onload = () => {
-        mermaid.initialize({startOnLoad: false, securityLevel: "strict", flowchart: {htmlLabels: false},
-          theme: matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "default"});
         ok(mermaid);
       };
       s.onerror = no;
@@ -15,8 +13,11 @@
     });
     return mermaidP;
   };
-  window.renderMermaid = async function (def, id) {
+  // SVG labels split words wider than 200px (fixed in Mermaid), so they are only used where HTML labels cannot go.
+  window.renderMermaid = async function (def, id, svgLabels) {
     const m = await loadMermaid();
+    m.initialize({startOnLoad: false, securityLevel: "strict", flowchart: {htmlLabels: !svgLabels},
+      theme: matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "default"});
     try { return (await m.render(id, def)).svg; }
     finally { const x = document.getElementById("d" + id); if (x) x.remove(); }
   };
@@ -135,9 +136,11 @@
       if (isFlow) bind();
       fit();
     };
-    const svgText = () => {
-      const c = svg.cloneNode(true);
+    const svgText = (el = svg) => {
+      const c = el.cloneNode(true);
+      const vb = el.viewBox.baseVal;
       c.removeAttribute("style"); c.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+      c.setAttribute("width", vb.width); c.setAttribute("height", vb.height);
       c.querySelectorAll(".dim").forEach(n => n.classList.remove("dim"));
       return new XMLSerializer().serializeToString(c);
     };
@@ -169,19 +172,31 @@
     bar.appendChild(right);
     const rbtn = (label, title, fn) => { const b = btn(label, title, () => fn(b)); right.appendChild(b); };
     rbtn("SVG", "Download as SVG", () => download("diagram.svg", new Blob([svgText()], {type: "image/svg+xml"})));
-    rbtn("PNG", "Download as PNG", b => {
-      const img = new Image(), c = document.createElement("canvas");
-      c.width = w * 2; c.height = h * 2;
+    const toPng = text => new Promise((ok, no) => {
+      const img = new Image();
       img.onload = () => {
         try {
+          const c = document.createElement("canvas"), r = img.width / img.height;
+          c.width = w * 2; c.height = c.width / r;
           const g = c.getContext("2d");
           g.fillStyle = getComputedStyle(document.body).backgroundColor; g.fillRect(0, 0, c.width, c.height);
           g.drawImage(img, 0, 0, c.width, c.height);
-          c.toBlob(bl => download("diagram.png", bl));
-        } catch (e) { flash(b, "PNG failed"); }
+          c.toBlob(bl => bl ? ok(bl) : no(new Error("empty")));
+        } catch (e) { no(e); }
       };
-      img.onerror = () => flash(b, "PNG failed");
-      img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svgText());
+      img.onerror = no;
+      img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(text);
+    });
+    rbtn("PNG", "Download as PNG", async b => {
+      try {
+        download("diagram.png", await toPng(svgText()));
+      } catch (e) {
+        try {
+          const tmp = document.createElement("div");
+          tmp.innerHTML = await renderMermaid(cur, "x" + (seq++), true);
+          download("diagram.png", await toPng(svgText(tmp.querySelector("svg"))));
+        } catch (e2) { flash(b, "PNG failed"); }
+      }
     });
     rbtn("Copy source", "Copy the Mermaid source", b => copyText(cur).then(() => flash(b, "Copied")));
     wrap.append(bar, view);
