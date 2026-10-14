@@ -211,10 +211,15 @@
       select(n.id); focusOn(neigh(n.id));
     });
     view.addEventListener("wheel", e => {
-      if (!(e.ctrlKey || e.metaKey || wrap.classList.contains("full"))) return;
-      e.preventDefault();
-      const r = view.getBoundingClientRect();
-      zoom(e.deltaY < 0 ? 1.15 : 1 / 1.15, e.clientX - r.left, e.clientY - r.top);
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        const r = view.getBoundingClientRect();
+        zoom(e.deltaY < 0 ? 1.15 : 1 / 1.15, e.clientX - r.left, e.clientY - r.top);
+      } else if (wrap.classList.contains("full")) {
+        e.preventDefault();
+        const dx = e.shiftKey && !e.deltaX ? e.deltaY : e.deltaX, dy = e.shiftKey && !e.deltaX ? 0 : e.deltaY;
+        x -= dx; y -= dy; apply();
+      }
     }, {passive: false});
     addEventListener("keydown", e => { if (e.key === "Escape" && wrap.classList.contains("full")) exp.click(); });
     addEventListener("resize", () => { if (wrap.isConnected) fit(); });
