@@ -36,19 +36,19 @@
     const a = Object.assign(document.createElement("a"), {href: URL.createObjectURL(blob), download: name});
     a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
-  function bridgesReady() {
-    if (window.BRIDGES) return Promise.resolve();
+  function mapReady() {
+    if (window.MAP) return Promise.resolve();
     return new Promise(ok => {
       const s = document.createElement("script");
-      s.src = root + "bridges-data.js"; s.onload = ok; s.onerror = ok;
+      s.src = root + "map-data.js"; s.onload = ok; s.onerror = ok;
       document.head.appendChild(s);
     });
   }
   async function explorerHref(label, id) {
-    await bridgesReady();
-    if (!window.BRIDGES) return null;
-    const n = BRIDGES.nodes.find(n => n.id === label || san(n.id) === id);
-    return n ? root + "explorer.html#" + encodeURIComponent(n.id) : null;
+    await mapReady();
+    if (!window.MAP) return null;
+    const n = MAP.nodes.find(n => n.id === label || n.label === label || san(n.id) === id);
+    return n ? root + "map.html#" + encodeURIComponent(n.id) : null;
   }
   window.mountDiagram = async function (def, place, opts) {
     opts = opts || {};
@@ -102,7 +102,7 @@
       dimTo(n => ns.has(n.id), e => e.src === id || e.dst === id);
       const n = model.nodes.find(n => n.id === id);
       Promise.resolve(resolve(n.label, id)).then(href => {
-        if (href && selId === id) { openA.href = href; openA.textContent = "Open in explorer: " + n.label; openA.hidden = false; }
+        if (href && selId === id) { openA.href = href; openA.textContent = "Open in the map: " + n.label; openA.hidden = false; }
       });
     };
     const bind = () => {
@@ -257,7 +257,7 @@
     });
   });
   const menu = document.getElementById("menu");
-  try { if (localStorage.getItem("ando-nav") === "off") document.body.classList.add("nav-off"); } catch (e) {}
+  try { const v = localStorage.getItem("ando-nav"); if (v === "off" || (!v && innerWidth <= 900)) document.body.classList.add("nav-off"); } catch (e) {}
   menu.addEventListener("click", () => {
     const off = document.body.classList.toggle("nav-off");
     try { localStorage.setItem("ando-nav", off ? "off" : "on"); } catch (e) {}

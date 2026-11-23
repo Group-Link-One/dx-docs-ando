@@ -58,7 +58,7 @@ A repo without a local mapping is mirror-cloned into `~/.cache/ando/repos`.
 
 ## Publishing the site
 
-`ando site --out site` writes plain HTML, CSS and JS: rendered docs, search, a bridges explorer,
+`ando site --out site` writes plain HTML, CSS and JS: rendered docs, search, an interactive system map,
 project status and open questions. It needs no server-side code. To keep viewers off public CDNs,
 download Mermaid once and pass the file:
 

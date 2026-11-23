@@ -1,4 +1,4 @@
-"""Static site for a docs target: rendered markdown, search, bridges explorer, status and questions."""
+"""Static site for a docs target: rendered markdown, search, system map, status and questions."""
 import html
 import http.server
 import json
@@ -10,7 +10,7 @@ from pathlib import Path, PurePosixPath
 
 import yaml
 
-from . import leaks
+from . import graphview, leaks
 from . import questions as qmod
 
 WEB = Path(__file__).parent / "web"
@@ -87,14 +87,14 @@ def _nav(pages, extra, cur):
     return f'<ul>{tools}</ul><hr style="border:0;border-top:1px solid var(--line)"><ul>{"".join(top)}</ul>'
 
 
-def _page(title, body, nav, cur, scripts=""):
+def _page(title, body, nav, cur, scripts="", cls=""):
     depth = len(PurePosixPath(cur).parts) - 1
     up = "../" * depth
     return f"""<!doctype html>
 <html lang="en" data-root="{up}" data-mermaid="{MERMAID}">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{html.escape(title)}</title><link rel="stylesheet" href="{up}style.css"></head>
-<body><button id="menu" type="button" title="Show or hide the menu" aria-label="Toggle menu">&#9776;</button><nav id="side"><a class="brand" href="{up}index.html">Architecture docs</a>
+<body class="{cls}"><button id="menu" type="button" title="Show or hide the menu" aria-label="Toggle menu">&#9776;</button><nav id="side"><a class="brand" href="{up}index.html">Architecture docs</a>
 <input id="q" type="search" placeholder="Search docs" autocomplete="off"><div id="results"></div>{nav}</nav>
 <main>{body}</main><script src="{up}app.js"></script>{scripts}</body></html>"""
 
@@ -162,8 +162,8 @@ def build(target, out, rows, mermaid_url=MERMAID):
     if out.exists():
         shutil.rmtree(out)
     out.mkdir(parents=True)
-    for f in ("style.css", "app.js", "explorer.js"):
-        shutil.copy(WEB / f, out / f)
+    for f in ("style.css", "app.js", "map.js", "vendor/dagre.min.js"):
+        shutil.copy(WEB / f, out / Path(f).name)
     local_mermaid = not re.match(r"https?://", mermaid_url)
     if local_mermaid:
         shutil.copy(Path(mermaid_url).expanduser(), out / "mermaid.min.js")
@@ -175,14 +175,14 @@ def build(target, out, rows, mermaid_url=MERMAID):
     bridges = yaml.safe_load(bridges_path.read_text()) if bridges_path.exists() else None
     extra = [("index.html", "Status")]
     if bridges:
-        extra.append(("explorer.html", "Bridges explorer"))
+        extra.append(("map.html", "System map"))
     extra.append(("questions.html", "Open questions"))
 
-    def write(rel, title, body, scripts=""):
+    def write(rel, title, body, scripts="", cls=""):
         dest = out / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
         src = "../" * (len(PurePosixPath(rel).parts) - 1) + "mermaid.min.js" if local_mermaid else mermaid_url
-        page = _page(title, body, _nav(pages, extra, rel), rel, scripts).replace(MERMAID, src)
+        page = _page(title, body, _nav(pages, extra, rel), rel, scripts, cls).replace(MERMAID, src)
         dest.write_text(page)
 
     for rel in rels:
@@ -208,12 +208,15 @@ def build(target, out, rows, mermaid_url=MERMAID):
     write("index.html", "Architecture docs", home)
     write("questions.html", "Open questions", _questions_page(target, bridges))
     if bridges:
-        data = {"nodes": bridges["nodes"], "edges": bridges["edges"]}
-        (out / "bridges-data.js").write_text("window.BRIDGES=" + json.dumps(data) + ";")
-        body = ("<h1>Bridges explorer</h1><p class='muted'>Pick a node to see who feeds it and what it feeds. "
-                "Every edge comes from <code>map/bridges.yaml</code>.</p><input id='sel' list='nodes' placeholder='Type a node name' autocomplete='off'>"
-                "<datalist id='nodes'></datalist><div id='out'></div>")
-        write("explorer.html", "Bridges explorer", body, '<script src="bridges-data.js"></script><script src="explorer.js"></script>')
+        docs = {}
+        for rel, _ in pages:
+            if len(rel.parts) > 1:
+                docs.setdefault(rel.parts[0], rel.with_suffix(".html").as_posix())
+        data = {**graphview.build(bridges), "docs": docs}
+        (out / "map-data.js").write_text("window.MAP=" + json.dumps(data) + ";")
+        body = '<div id="mapbar"></div><div id="mapwrap"><div id="stage"></div><aside id="panel" hidden></aside></div>'
+        write("map.html", "System map", body, '<script src="dagre.min.js"></script><script src="map-data.js"></script><script src="map.js"></script>', "mappage")
+        (out / "explorer.html").write_text('<!doctype html><script>location.replace("map.html" + location.hash)</script>')
     index = [{"path": r.with_suffix(".html").as_posix(), "title": t, "text": _plain(texts[r])[:20000]} for r, t in pages]
     (out / "search.js").write_text("window.SEARCH=" + json.dumps(index) + ";")
     return out
