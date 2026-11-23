@@ -1,7 +1,24 @@
 (function () {
-  const M = window.MAP, root = document.documentElement.dataset.root || "";
+  const BASE = window.MAP, root = document.documentElement.dataset.root || "";
   const NS = "http://www.w3.org/2000/svg";
-  const byId = Object.fromEntries(M.nodes.map(n => [n.id, n]));
+  const byId = Object.fromEntries(BASE.nodes.map(n => [n.id, n]));
+  // the same map with each part (a task, a job) of a service drawn as its own node
+  const SPLIT = (() => {
+    const nodes = new Map(BASE.nodes.map(n => [n.id, n])), edges = new Map();
+    const end = (id, part) => {
+      if (!part) return id;
+      const pid = id + "#" + part, o = byId[id];
+      if (!nodes.has(pid)) { const n = {id: pid, label: part, kind: "part", parent: id, group: o.group, namespace: o.namespace}; nodes.set(pid, n); byId[pid] = n; }
+      return pid;
+    };
+    BASE.edges.forEach(e => e.items.forEach(it => {
+      const a = end(e.from, it.from_part), b = end(e.to, it.to_part), k = [a, b, e.via, e.config].join("|");
+      if (!edges.has(k)) edges.set(k, {...e, from: a, to: b, items: []});
+      edges.get(k).items.push(it);
+    }));
+    return {...BASE, nodes: [...nodes.values()], edges: [...edges.values()], any: nodes.size > BASE.nodes.length};
+  })();
+  let M = BASE;
   const stage = document.getElementById("stage"), panel = document.getElementById("panel"), bar = document.getElementById("mapbar");
   const esc = t => String(t == null ? "" : t).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
   const FAM = {msg: "Topics and queues", call: "Calls", store: "Stores"};
@@ -10,11 +27,12 @@
   const groups = [...new Set(M.nodes.map(n => n.group).filter(Boolean))];
   const hue = g => (groups.indexOf(g) * 67 + 205) % 360;
 
-  const st = {fam: {msg: true, call: false, store: false}, config: false, orphan: true, sel: null, trace: null, dir: "LR"};
+  const st = {fam: {msg: true, call: false, store: false}, config: false, orphan: true, split: true, sel: null, trace: null, dir: "LR"};
   try { Object.assign(st, JSON.parse(localStorage.getItem("ando-map") || "{}"), {sel: null, trace: null}); } catch (e) {}
-  const save = () => { try { localStorage.setItem("ando-map", JSON.stringify({fam: st.fam, config: st.config, orphan: st.orphan, dir: st.dir})); } catch (e) {} };
+  const save = () => { try { localStorage.setItem("ando-map", JSON.stringify({fam: st.fam, config: st.config, orphan: st.orphan, split: st.split, dir: st.dir})); } catch (e) {} };
 
   function visible() {
+    M = st.split && SPLIT.any ? SPLIT : BASE;
     let edges = M.edges.filter(e => st.fam[e.fam] && (st.config || !e.config));
     if (!st.orphan) edges = edges.filter(e => !byId[e.to].orphan);
     if (st.trace && st.trace.how === "near") {
@@ -55,7 +73,7 @@
   let pos = {};
   try { pos = JSON.parse(localStorage.getItem("ando-map-pos") || "{}"); } catch (e) {}
   // dragged positions only make sense for the exact set of things on screen
-  const key = () => [st.dir, st.fam.msg, st.fam.call, st.fam.store, st.config, st.orphan, st.trace ? st.trace.id + st.trace.how : "", M.nodes.length].join("|");
+  const key = () => [st.dir, st.split, st.fam.msg, st.fam.call, st.fam.store, st.config, st.orphan, st.trace ? st.trace.id + st.trace.how : "", M.nodes.length].join("|");
   const savePos = () => { try { localStorage.setItem("ando-map-pos", JSON.stringify(pos)); } catch (e) {} reset.hidden = !Object.keys(pos[key()] || {}).length; };
   function route(a, b) {
     if (st.dir === "LR") {
@@ -75,6 +93,7 @@
   function size(n) {
     meas.font = (isChannel(n) ? "500 12px " : "600 13px ") + "system-ui,sans-serif";
     const w = Math.max(meas.measureText(n.label).width + (isChannel(n) ? 34 : 30), 80);
+    if (n.kind === "part") return {w: Math.ceil(Math.max(w, meas.measureText(byId[n.parent].label).width * 0.8 + 30)), h: 46};
     return {w: Math.ceil(w), h: n.kind === "store" ? 54 : isChannel(n) ? 30 : 40};
   }
 
@@ -116,7 +135,8 @@
       el("rect", {class: "body", x: -w / 2, y: -h / 2, width: w, height: h, rx: 6}, g);
       if (n.group && n.kind !== "external" && n.kind !== "unknown") el("rect", {x: -w / 2, y: -h / 2, width: 5, height: h, rx: 2, fill: `hsl(${hue(n.group)} 60% 50%)`}, g);
     }
-    const t = el("text", {x: n.kind === "store" ? 0 : isChannel(n) ? -4 : 3, y: n.kind === "store" ? 8 : 4, "text-anchor": "middle"}, g);
+    if (n.kind === "part") el("text", {class: "cap", x: 3, y: -8, "text-anchor": "middle"}, g).textContent = byId[n.parent].label;
+    const t = el("text", {x: n.kind === "store" ? 0 : isChannel(n) ? -4 : 3, y: n.kind === "store" ? 8 : n.kind === "part" ? 11 : 4, "text-anchor": "middle"}, g);
     t.textContent = n.label;
   }
 
@@ -242,7 +262,7 @@
   const link = id => `<a href="#${encodeURIComponent(id)}" data-id="${esc(id)}">${esc(byId[id].label)}</a>`;
   const evidence = it => (it.evidence || []).map(x => `<code>${esc(x)}</code>`).join("<br>");
   function itemRows(items) {
-    return "<table>" + items.map(it => `<tr><td><code>${esc(it.name)}</code>${it.access ? ` <span class="badge">${it.access}</span>` : ""}` +
+    return "<table>" + items.map(it => `<tr><td><code>${esc(it.name)}</code>${[it.from_part, it.to_part].filter(Boolean).map(x => ` <span class="badge part">${esc(x)}</span>`).join("")}${it.access ? ` <span class="badge">${it.access}</span>` : ""}` +
       `<span class="badge ${esc(it.confidence)}">${esc(it.confidence)}</span>${it.note ? `<div class="muted">${esc(it.note)}</div>` : ""}<div class="ev">${evidence(it)}</div></td></tr>`).join("") + "</table>";
   }
   function side(title, list, other) {
@@ -265,7 +285,7 @@
       const doc = M.docs && M.docs[n.group];
       h += `<h2>${esc(n.label)}</h2><p><span class="badge">${esc(n.kind)}</span>${n.via ? ` <span class="via ${isChannel(n) ? "msg" : "store"}">${esc(n.via)}</span>` : ""}` +
         `${n.orphan ? ' <span class="badge stale">no known consumer</span>' : ""}</p>` +
-        `<p class="muted">${[n.group && "project " + n.group, n.namespace && "namespace " + n.namespace].filter(Boolean).map(esc).join(" · ")}` +
+        `<p class="muted">${[n.parent && "part of " + link(n.parent), n.group && "project " + esc(n.group), n.namespace && "namespace " + esc(n.namespace)].filter(Boolean).join(" · ")}` +
         `${doc ? ` · <a href="${root + doc}">docs</a>` : ""}</p>` +
         `<p class="acts"><button data-t="near" type="button">Focus</button><button data-t="up" type="button">Trace upstream</button><button data-t="down" type="button">Trace downstream</button><button data-t="both" type="button">Both</button></p>` +
         side(isChannel(n) ? "Produced by" : isHub(n) ? "Written by" : "Fed or called by", ins, "from") +
@@ -290,11 +310,12 @@
   function go(id, zoomTo) {
     if (!byId[id]) return;
     if (!drawn.nodes.has(id)) {
-      const es = M.edges.filter(e => e.from === id || e.to === id);
+      const es = (byId[id].kind === "part" ? SPLIT : BASE).edges.filter(e => e.from === id || e.to === id);
       st.trace = null; chip.hidden = true;
       es.forEach(e => { st.fam[e.fam] = true; });
       if (es.length && es.every(e => e.config)) st.config = true;
       if (byId[id].orphan) st.orphan = true;
+      st.split = byId[id].kind === "part";
       sync(); draw();
     }
     select({node: id});
@@ -308,8 +329,8 @@
   const mk = (tag, props, parent) => { const x = Object.assign(document.createElement(tag), props); (parent || bar).appendChild(x); return x; };
   const find = mk("input", {type: "search", placeholder: "Find a service, topic or store", autocomplete: "off"});
   find.setAttribute("list", "mapnodes");
-  mk("datalist", {id: "mapnodes", innerHTML: M.nodes.map(n => `<option value="${esc(n.label)}">${esc(n.kind)}${n.group ? " / " + esc(n.group) : ""}</option>`).join("")});
-  const pick = () => { const q = find.value.trim().toLowerCase(); const n = M.nodes.find(n => n.label.toLowerCase() === q) || (q && M.nodes.find(n => n.label.toLowerCase().includes(q))); if (n) { go(n.id, true); find.blur(); } };
+  mk("datalist", {id: "mapnodes", innerHTML: SPLIT.nodes.map(n => `<option value="${esc(n.label)}">${esc(n.kind)}${n.parent ? " of " + esc(n.parent) : n.group ? " / " + esc(n.group) : ""}</option>`).join("")});
+  const pick = () => { const q = find.value.trim().toLowerCase(); const n = SPLIT.nodes.find(n => n.label.toLowerCase() === q) || (q && SPLIT.nodes.find(n => n.label.toLowerCase().includes(q))); if (n) { go(n.id, true); find.blur(); } };
   find.addEventListener("change", pick);
   find.addEventListener("keydown", e => { if (e.key === "Enter") pick(); });
   const toggles = [];
@@ -321,6 +342,7 @@
   Object.keys(FAM).forEach(f => toggle(FAM[f], f, "Show or hide " + FAM[f].toLowerCase(), () => st.fam[f], v => { st.fam[f] = v; }));
   toggle("Deploy wiring", "cfg", "Links seen only in deploy env (KAFKA_BROKERS, REDIS_CONN, *_URL). They prove wiring, not direction.", () => st.config, v => { st.config = v; });
   toggle("Unconsumed topics", "orph", "Topics that something produces and nothing tracked consumes", () => st.orphan, v => { st.orphan = v; });
+  if (SPLIT.any) toggle("Parts", "prt", "Draw each task or job inside a service as its own box, so a topic shows which one owns it", () => st.split, v => { st.split = v; st.sel = null; st.trace = null; chip.hidden = true; panel.hidden = true; });
   const sync = () => toggles.forEach(f => f());
   const chip = mk("button", {type: "button", className: "chip", hidden: true, title: "Back to the whole map"});
   chip.onclick = () => trace(null);

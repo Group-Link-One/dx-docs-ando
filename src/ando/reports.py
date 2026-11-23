@@ -81,6 +81,11 @@ def infra_deploy(project, inv):
     put_block(project.dir / "DEPLOY.md", "inventory", body, f"# {project.slug}: deploy inventory")
 
 
+def _end(e, side):
+    part = e.get(side + "_part")
+    return f"{e[side]} ({part})" if part else e[side]
+
+
 def bridges_map(target, bridges):
     edges = bridges["edges"]
     nodes = {n["id"]: n for n in bridges["nodes"]}
@@ -101,7 +106,7 @@ def bridges_map(target, bridges):
         if len(code) < len(view["edges"]):
             body += "_Edges seen only in deploy env are in the table, not in the diagram._\n\n"
         body += table(["from", "to", "via", "name", "confidence", "evidence"],
-                      [[e["from"], e["to"], e["via"], e["name"], e["confidence"], "; ".join(f"`{x}`" for x in e["evidence"])] for e in es])
+                      [[_end(e, "from"), _end(e, "to"), e["via"], e["name"], e["confidence"], "; ".join(f"`{x}`" for x in e["evidence"])] for e in es])
         body += "\n"
     if bridges["unmatched_ports"]:
         body += "\n## Unmatched ports\n\n" + table(["project", "direction", "via", "name", "evidence"],

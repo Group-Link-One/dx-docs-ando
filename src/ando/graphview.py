@@ -35,18 +35,20 @@ def build(bridges, raw_edges=None, unmatched=None):
 
     for e in raw_edges:
         via, item = e["via"], {"name": e["name"], "confidence": e["confidence"], "evidence": e["evidence"]}
+        fp = {"from_part": e["from_part"]} if e.get("from_part") else {}
+        tp = {"to_part": e["to_part"]} if e.get("to_part") else {}
         if e["confidence"] == "config":
             edge(node(e["from"]), node(e["to"]), via, True, item)
         elif via in CHANNEL:
             ch = channel(via, e["name"])
-            edge(node(e["from"]), ch, via, False, item)
-            edge(ch, node(e["to"]), via, False, item)
+            edge(node(e["from"]), ch, via, False, {**item, **fp})
+            edge(ch, node(e["to"]), via, False, {**item, **tp})
         elif via in CALL or via in (e["from"], e["to"]):
-            edge(node(e["from"]), node(e["to"]), via, False, item)
+            edge(node(e["from"]), node(e["to"]), via, False, {**item, **fp, **tp})
         else:
             st = node(f"store:{via}", label=via, kind="store", group=None, via=via)
-            edge(node(e["from"]), st, via, False, {**item, "access": "writes"})
-            edge(st, node(e["to"]), via, False, {**item, "access": "reads"})
+            edge(node(e["from"]), st, via, False, {**item, **fp, "access": "writes"})
+            edge(st, node(e["to"]), via, False, {**item, **tp, "access": "reads"})
 
     for u in unmatched:
         if u.get("direction") == "produces" and u.get("via") in CHANNEL and u.get("name"):
@@ -60,7 +62,8 @@ def build(bridges, raw_edges=None, unmatched=None):
                 nodes[who] = {"id": who, "label": who, "kind": src.get(who, {}).get("kind", "component"), "group": u["project"],
                               "namespace": src.get(who, {}).get("namespace")}
             edge(who, ch, u["via"], False, {"name": u["name"], "confidence": "code",
-                                            "evidence": [f"{u['project']}:{u.get('evidence')}"], "note": u.get("note")})
+                                            "evidence": [f"{u['project']}:{u.get('evidence')}"], "note": u.get("note"),
+                                            **({"from_part": u["part"]} if u.get("part") else {})})
 
     # a service that both writes and reads one store gets a single two-way edge
     out = []
@@ -68,7 +71,9 @@ def build(bridges, raw_edges=None, unmatched=None):
         if not config and nodes[b]["kind"] == "store" and b.startswith("store:"):
             back = edges.get((b, a, via, False))
             if back:
-                e = {**e, "both": True, "items": e["items"] + [i for i in back["items"] if i not in e["items"]]}
+                flipped = [{**{k: v for k, v in i.items() if k != "to_part"}, **({"from_part": i["to_part"]} if i.get("to_part") else {})}
+                           for i in back["items"]]
+                e = {**e, "both": True, "items": e["items"] + [i for i in flipped if i not in e["items"]]}
         elif not config and nodes[a]["kind"] == "store" and a.startswith("store:") and (b, a, via, False) in edges:
             continue
         out.append(e)

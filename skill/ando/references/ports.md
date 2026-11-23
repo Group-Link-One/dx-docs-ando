@@ -26,6 +26,15 @@ The company map draws one node per component, so code edges and deploy-config ed
 on the same node. Shared libraries are not components: attribute their ports to each
 service that uses them.
 
+`part` is optional and names the unit of work inside the component that owns the port: a
+task type, a cron job, a queue worker (`"part": "task:invoice_export"`). The map can then
+show which task owns a topic instead of only the service. Do not write it by hand when
+the manifest has `parts` rules for the project: `ando map` fills it from the evidence
+path. A rule is `{glob, name}`, where `{dir}` in `name` is the file's directory, or
+`{glob, match, name}`, where `match` is a regex whose first group is read from the
+evidence file (or from its directory, when only one unit is declared there) and used as
+`{0}`. The first rule whose glob matches wins.
+
 `via`: `http`, `grpc`, `kafka`, `rabbitmq`, `mqtt`, `nats`, `redis`, `postgres`, `mysql`,
 `mongodb`, `clickhouse`, `druid`, `s3`, `webhook`, `other`.
 

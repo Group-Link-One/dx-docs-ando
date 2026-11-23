@@ -129,7 +129,7 @@ def build(target, shas):
         ours = bool(e["builders"]) or any(w["registry"] in own for w in e["workloads"])
         deploy["images"][key] = {"ours": ours, **e}
 
-    bridges = _bridges(target, invs, deploy, services)
+    bridges = _bridges(target, invs, deploy, services, shas)
     gaps = _gaps(target, deploy, invs)
     return deploy, bridges, gaps, invs
 
@@ -142,7 +142,53 @@ def _ingress_hosts(invs):
     return out
 
 
-def _bridges(target, invs, deploy, services):
+def _parts(project, sha, pj):
+    """Set `part` on each port from the manifest `parts` rules: the unit of work inside the component that owns the port."""
+    rules = project.spec.get("parts") or []
+    if not rules:
+        return
+    files = project.repo.ls_files(sha) if sha else []
+    base = (project.spec.get("path", ".") or ".").strip("/")
+    rels = [f[len(base) + 1:] if base not in ("", ".") else f for f in files]
+    found = {}
+
+    def scan(rel, rx):
+        if (rel, rx.pattern) not in found:
+            try:
+                text = project.repo.show(sha, _join(project.spec.get("path", "."), rel)).decode("utf-8", "replace")
+                found[(rel, rx.pattern)] = sorted({m.group(1) for m in rx.finditer(text)})
+            except Exception:
+                found[(rel, rx.pattern)] = []
+        return found[(rel, rx.pattern)]
+
+    def part_of(rel):
+        for r in rules:
+            if not _glob(rel, r["glob"]):
+                continue
+            d = PurePosixPath(rel).parent
+            if not r.get("match"):
+                return r["name"].format(dir=d.name)
+            rx = re.compile(r["match"])
+            hits = scan(rel, rx) if sha else []
+            if len(hits) != 1:
+                # a helper file belongs to the one unit its directory declares, if there is only one
+                hits = sorted({h for f in rels if PurePosixPath(f).parent == d for h in scan(f, rx)}) if sha else []
+            return r["name"].format(hits[0], dir=d.name) if len(hits) == 1 else None
+        return None
+
+    cache = {}
+    for direction in ("serves", "calls", "produces", "consumes", "reads", "writes"):
+        for port in pj.get(direction) or []:
+            rel = str(port.get("evidence") or "").rsplit(":", 1)[0]
+            if port.get("part") or not rel:
+                continue
+            if rel not in cache:
+                cache[rel] = part_of(rel)
+            if cache[rel]:
+                port["part"] = cache[rel]
+
+
+def _bridges(target, invs, deploy, services, shas=None):
     owner = {}
     for key, e in deploy["images"].items():
         proj = next((b["project"] for b in e["builders"] if not b["excluded"]), None) or \
@@ -200,6 +246,11 @@ def _bridges(target, invs, deploy, services):
 
     unmatched = []
     ports = {p.slug: p.load_json("ports.json", {}) or {} for p in services}
+    for p in services:
+        _parts(p, (shas or {}).get(p.slug), ports[p.slug])
+
+    def sub(a, b):
+        return {k: v for k, v in (("from_part", a.get("part")), ("to_part", b.get("part") if b else None)) if v}
     workload_names = {n["id"] for n in nodes.values() if n.get("kind") == "workload"}
 
     def comp(slug, port):
@@ -241,7 +292,7 @@ def _bridges(target, invs, deploy, services):
                 matches = [m for m in index.get(k, []) if (m[0], m[1].get("component")) != (slug, port.get("component"))]
                 for other, oport in matches:
                     a, b = (comp(slug, port), comp(other, oport))
-                    edges.append({"from": a, "to": b, "via": k[0], "name": k[1],
+                    edges.append({"from": a, "to": b, "via": k[0], "name": k[1], **sub(port, oport),
                                   "evidence": [f"{slug}:{port.get('evidence')}", f"{other}:{oport.get('evidence')}"] + ([port["bound_by"]] if port.get("bound_by") else []),
                                   "confidence": "code"})
                 if not matches and out_dir == "produces" and not port.get("bound_by") and not binds.get(k):
@@ -257,25 +308,26 @@ def _bridges(target, invs, deploy, services):
                 if served or callee in workload_names:
                     to = comp(hit[0][0], hit[0][1]) if hit else (comp(served[0][0], served[0][1]) if served else node(callee, kind="workload"))
                     edges.append({"from": comp(slug, port), "to": to, "via": port["via"], "name": route.strip() or port["name"],
+                                  **sub(port, hit[0][1] if hit else None),
                                   "evidence": [f"{slug}:{port.get('evidence')}"] + ([f"{hit[0][0]}:{hit[0][1].get('evidence')}"] if hit else []),
                                   "confidence": "code" if hit else "code-caller"})
                 elif "." in callee:
                     edges.append({"from": comp(slug, port), "to": node(callee, kind="external"), "via": port["via"], "name": route.strip(),
-                                  "evidence": [f"{slug}:{port.get('evidence')}"], "confidence": "code-caller"})
+                                  **sub(port, None), "evidence": [f"{slug}:{port.get('evidence')}"], "confidence": "code-caller"})
                 elif callee and not callee.startswith("env:"):
                     edges.append({"from": comp(slug, port), "to": node(callee, kind="unknown"), "via": port["via"], "name": route.strip(),
-                                  "evidence": [f"{slug}:{port.get('evidence')}"], "confidence": "code-caller"})
+                                  **sub(port, None), "evidence": [f"{slug}:{port.get('evidence')}"], "confidence": "code-caller"})
                 else:
                     unmatched.append({"project": slug, "component": port.get("component"), "direction": "calls", **port})
     merged = {}
     for e in edges:
-        k = (e["from"], e["to"], e["via"], e["name"])
+        k = (e["from"], e["to"], e["via"], e["name"], e.get("from_part"), e.get("to_part"))
         if k in merged:
             merged[k]["evidence"] = sorted(set(merged[k]["evidence"]) | set(e["evidence"]))
         else:
             merged[k] = e
     uniq = sorted(({**e, "evidence": sorted(set(e["evidence"]))} for e in merged.values()),
-                  key=lambda e: (e["from"], e["to"], e["via"], e["name"]))
+                  key=lambda e: (e["from"], e["to"], e["via"], e["name"], e.get("from_part") or "", e.get("to_part") or ""))
     return {"generated_at": now(), "nodes": sorted(nodes.values(), key=lambda n: n["id"]), "edges": uniq,
             "unmatched_ports": unmatched}
 
